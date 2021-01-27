@@ -1,0 +1,100 @@
+---
+title: "Release Height Changes"
+output: html_document
+---
+
+```{r}
+
+library(glmnet)
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+library(caret)
+
+## DATA PREPARATION ##
+Fastballs <- read_excel("Desktop/Fastballs.xlsx")
+View(Fastballs)
+
+FB_15 <- Fastballs %>% filter(Year == 2015)
+FB_16 <- Fastballs %>% filter(Year == 2016)
+FB_17 <- Fastballs %>% filter(Year == 2017)
+FB_18 <- Fastballs %>% filter(Year == 2018)
+FB_19 <- Fastballs %>% filter(Year == 2019)
+FB_20 <- Fastballs %>% filter(Year == 2020)
+
+a <- left_join(FB_15, FB_16, by = "pitcher")
+b <- left_join(FB_16, FB_17, by = "pitcher")
+c <- left_join(FB_17, FB_18, by = "pitcher")
+d <- left_join(FB_18, FB_19, by = "pitcher")
+e <- left_join(FB_19, FB_20, by = "pitcher")
+Combined_FB <- rbind(a, b, c, d, e)
+Combined_FB <- Combined_FB %>% filter(!is.na(Rel_X.y))
+
+colnames(Combined_FB) <- c("pitcher", "Name", "Year_1", "Y1_Count", "Y1_RelX", "Y1_RelZ", "Y1_RelY", "Y1_Ext", "Y1_MaxVelo", "Y1_MeanVelo", "Y1_HorBreak", "Y1_ABSHor", "Y1_VerBreak", "Y1_Spin", "Y1_SM", "Y1_CSW", "Y1_BIPCount", "Y1_EV", "Y1_wOBA", "Y1_xwOBA", "Y1_Barrel", "Y1_PitchType", "Y1_PitchType2", "Y1_Team", "Y1_Age", "Y1_Pitches", "Y1_IP", "Y1_FBv", "Y1_playerid", "Y1_weight", "Y1_height", "Y1_bats", "Y1_throws", "Y2_Name", "Year_2", "Y2_Count", "Y2_RelX", "Y2_RelZ", "Y2_RelY", "Y2_Ext", "Y2_MaxVelo", "Y2_MeanVelo", "Y2_HorBreak", "Y2_ABSHor", "Y2_VerBreak", "Y2_Spin", "Y2_SM", "Y2_CSW", "Y2_BIPCount", "Y2_EV", "Y2_wOBA", "Y2_xwOBA", "Y2_Barrel", "Y2_PitchType", "Y2_PitchType2", "Y2_Team", "Y2_Age", "Y2_Pitches", "Y2_IP", "Y2_FBv", "Y2_playerid", "Y2_weight", "Y2_height", "Y2_bats", "Y2_throws")
+Combined_FB <- Combined_FB %>% filter(Y2_Pitches > 150 & Y1_Pitches > 150)
+
+Combined_FB <- Combined_FB %>% mutate(RelX_Diff = Y2_RelX - Y1_RelX, RelZ_Diff = Y2_RelZ - Y1_RelZ, Ext_Diff = Y2_Ext - Y1_Ext, Velo_Diff = Y2_MeanVelo - Y1_MeanVelo, Velo_Diff2 = Y2_FBv - Y1_FBv, VerBreak_Diff = Y2_VerBreak - Y1_VerBreak, HorBreak_Diff = Y2_ABSHor - Y1_ABSHor)
+
+FourSeams <- Combined_FB %>% filter(Y2_PitchType == "Four Seam" & Y1_PitchType == "Four Seam")
+View(FourSeams)
+
+
+
+## Visualize Data
+#Distribution of Release Changes
+ggplot(FourSeams, aes(x = )) + geom_density(aes(y = ..count..), alpha=.2, fill="#FF6666") + labs(x = "Release Height Change (in)", y = "Count") + ggtitle("Release Height Changes Distribution") + theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + xlim(-0.5, 0.5)
+#Vertical Break Change Based On Release Height Change
+ggplot(FourSeams, aes(x = RelZ_Diff, y = VerBreak_Diff)) + geom_point() + geom_smooth() + ggtitle("Vertical Break Change Based On Release Height Change") + theme_bw() + labs(y = "Vertical Break Change", x = "Release Height Change") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + xlim(-0.35, 0.3) + ylim(-0.3, 0.3)
+#Extension Change Based On Release Height Change
+ggplot(FourSeams, aes(x = RelZ_Diff, y = Ext_Diff)) + geom_point() + geom_smooth() + ggtitle("Extension Change Based On Release Height Change") + theme_bw() + labs(y = "Extension Change", x = "Release Height Change") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + xlim(-0.35, 0.3)
+
+
+#Look at Changes in a Metric For Negative Changes
+Negative_Changes <- FourSeams %>% filter(RelZ_Diff < 0.00)
+ggplot(Negative_Changes, aes(x = VerBreak_Diff)) + geom_density(aes(y = ..count..), alpha=.2, fill="#FF6666") + labs(x = "Vertical Break Change (in)", y = "Count") + ggtitle("Vertical Break Change For Lower Releases") + theme_bw() + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) 
+
+
+
+### START TO MODEL ###
+
+FourSeams <- FourSeams %>% filter(!is.na(RelZ_Diff) & !is.na(RelX_Diff) & !is.na(Ext_Diff) & !is.na(Velo_Diff) & !is.na(HorBreak_Diff) & !is.na(VerBreak_Diff))
+
+##LASSO
+#Use model.matrix() to create matrix of predictors
+x_rel <- model.matrix(RelZ_Diff ~ Velo_Diff + RelX_Diff + Ext_Diff + HorBreak_Diff + VerBreak_Diff, data = FourSeams)
+y_rel <- FourSeams$RelZ_Diff
+cv.lasso_rel <- cv.glmnet(x_rel, y_rel, family = "gaussian", alpha = 1, lambda = NULL)
+#Now look at exact value
+cv.lasso_rel$lambda.min
+#lambda.min shows best lambda and it's regression coefficients
+coef(cv.lasso_rel, cv.lasso_rel$lambda.min)
+#Fit the model with lambda.min
+rel_glmnet <- glmnet(x_rel, y_rel, alpha = 1, family = "gaussian", lambda = cv.lasso_rel$lambda.min)
+#Plot variable importance
+coef(rel_glmnet, s = "lambda.1se") %>% tidy() %>% filter(row != "(Intercept)") %>% ggplot(aes(value, reorder(row, value), color = value > 0)) + geom_point(show.legend = FALSE) + ggtitle("Influential variables") + xlab("Coefficient") + ylab(NULL)
+
+
+
+#Random Forest
+#Train/Test Split
+trControl <- trainControl(method = "cv", number = 10)
+indexes <- sample(1:nrow(FourSeams), size = 0.25*nrow(FourSeams)) 
+test <- FourSeams[indexes,]
+train <- FourSeams[-indexes,] 
+
+#Make Model
+rf_rel <- caret::train(RelZ_Diff ~ Velo_Diff + RelX_Diff + Ext_Diff + HorBreak_Diff + VerBreak_Diff, data = train, method = "rf", trControl = trControl, importance = TRUE)
+rf_rel
+
+#Variable Importance
+varImp(rf_rel)
+
+#Analyze the RF 
+preds <- predict(object = rf_rel, newdata = test)
+
+caret::RMSE(test$RelZ_Diff, preds) #0.1364381, 0.1252916, 0.1188636
+caret::MAE(test$RelZ_Diff, preds) #0.1066221, 0.09731067, 0.09416655
+cor(preds, test$RelZ_Diff) ^ 2 #0.1024934, 0.1653761, 0.1658985
+
+
+```
