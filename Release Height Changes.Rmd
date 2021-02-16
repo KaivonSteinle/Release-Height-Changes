@@ -5,6 +5,7 @@ output: html_document
 
 ```{r}
 
+#First look at year to year changes
 library(glmnet)
 library(ggplot2)
 library(magrittr)
@@ -55,46 +56,73 @@ ggplot(Negative_Changes, aes(x = VerBreak_Diff)) + geom_density(aes(y = ..count.
 
 
 
-### START TO MODEL ###
-
-FourSeams <- FourSeams %>% filter(!is.na(RelZ_Diff) & !is.na(RelX_Diff) & !is.na(Ext_Diff) & !is.na(Velo_Diff) & !is.na(HorBreak_Diff) & !is.na(VerBreak_Diff))
-
-##LASSO
-#Use model.matrix() to create matrix of predictors
-x_rel <- model.matrix(RelZ_Diff ~ Velo_Diff + RelX_Diff + Ext_Diff + HorBreak_Diff + VerBreak_Diff, data = FourSeams)
-y_rel <- FourSeams$RelZ_Diff
-cv.lasso_rel <- cv.glmnet(x_rel, y_rel, family = "gaussian", alpha = 1, lambda = NULL)
-#Now look at exact value
-cv.lasso_rel$lambda.min
-#lambda.min shows best lambda and it's regression coefficients
-coef(cv.lasso_rel, cv.lasso_rel$lambda.min)
-#Fit the model with lambda.min
-rel_glmnet <- glmnet(x_rel, y_rel, alpha = 1, family = "gaussian", lambda = cv.lasso_rel$lambda.min)
-#Plot variable importance
-coef(rel_glmnet, s = "lambda.1se") %>% tidy() %>% filter(row != "(Intercept)") %>% ggplot(aes(value, reorder(row, value), color = value > 0)) + geom_point(show.legend = FALSE) + ggtitle("Influential variables") + xlab("Coefficient") + ylab(NULL)
 
 
+#Look at play by play correlations
 
-#Random Forest
-#Train/Test Split
-trControl <- trainControl(method = "cv", number = 10)
-indexes <- sample(1:nrow(FourSeams), size = 0.25*nrow(FourSeams)) 
-test <- FourSeams[indexes,]
-train <- FourSeams[-indexes,] 
+#Create Fastballs Dataframe
+FourSeams <- Play_By_Play %>% filter(pitch_type == "FF") %>% filter(!is.na(release_spin_rate) & !is.na(pfx_x) &!is.na(SM))
+FourSeams$Pitch_Type <- "Four Seam"
+FourSeams$Pitch_Type_2 <- "Fastball"
 
-#Make Model
-rf_rel <- caret::train(RelZ_Diff ~ Velo_Diff + RelX_Diff + Ext_Diff + HorBreak_Diff + VerBreak_Diff, data = train, method = "rf", trControl = trControl, importance = TRUE)
-rf_rel
+Cutters <- Play_By_Play %>% filter(pitch_type == "FC") %>% filter(!is.na(release_spin_rate) & !is.na(plate_x) & !is.na(plate_z) & !is.na(pfx_z) & !is.na(pfx_x) & !is.na(SM) & !is.na(release_speed)& !is.na(release_extension) & !is.na(release_pos_z))
+Cutters$Pitch_Type <- "Cutter"
+Cutters$Pitch_Type_2 <- "Fastball"
 
-#Variable Importance
-varImp(rf_rel)
+TwoSeams <- Play_By_Play %>% filter(pitch_type == "FT") %>% filter(!is.na(release_spin_rate) & !is.na(plate_x) & !is.na(plate_z) & !is.na(pfx_z) & !is.na(pfx_x) & !is.na(SM) & !is.na(release_speed)& !is.na(release_extension) & !is.na(release_pos_z))
+TwoSeams$Pitch_Type <- "Two Seam"
+TwoSeams$Pitch_Type_2 <- "Fastball"
 
-#Analyze the RF 
-preds <- predict(object = rf_rel, newdata = test)
+Sinkers <- Play_By_Play %>% filter(pitch_type == "FS") %>% filter(!is.na(release_spin_rate) & !is.na(plate_x) & !is.na(plate_z) & !is.na(pfx_z) & !is.na(pfx_x) & !is.na(SM) & !is.na(release_speed)& !is.na(release_extension) & !is.na(release_pos_z))
+Sinkers$Pitch_Type <- "Sinker"
+Sinkers$Pitch_Type_2 <- "Fastball"
 
-caret::RMSE(test$RelZ_Diff, preds) #0.1364381, 0.1252916, 0.1188636
-caret::MAE(test$RelZ_Diff, preds) #0.1066221, 0.09731067, 0.09416655
-cor(preds, test$RelZ_Diff) ^ 2 #0.1024934, 0.1653761, 0.1658985
+Fastballs <- rbind(FourSeams, Cutters, TwoSeams, Sinkers)
+View(Fastballs)
+
+write.csv(Fastballs, "FB.csv")
+
+
+
+
+
+install.packages("rmcorr")
+library(rmcorr)
+
+FourSeams <- FourSeams %>% filter(!is.na(release_pos_z) & !is.na(release_speed) & !is.na(release_pos_x) & !is.na(release_extension) & !is.na(pfx_z))
+FourSeams$pitcher <- as.factor(FourSeams$pitcher)
+FourSeams <- FourSeams %>% filter(Year != "2015" & Year != "2016")
+Four_Seams_Summary <- FourSeams %>% dplyr::group_by(pitcher) %>% dplyr::summarise(N_Total = n())
+FourSeams <- left_join(FourSeams, Four_Seams_Summary, by = "pitcher")
+FourSeams <- FourSeams %>% filter(N_Total > 350)
+View(FourSeams)
+
+index <- sample(1:nrow(FourSeams), size = 0.25*nrow(FourSeams)) 
+sample_fours <- FourSeams[index,]
+sample_fours_summary <- sample_fours %>% dplyr::group_by(pitcher) %>% dplyr::summarise(N_Sample = n())
+sample_fours <- left_join(sample_fours, sample_fours_summary, by = "pitcher")
+View(sample_fours)
+
+relx_change <- rmcorr(pitcher, measure1 = release_pos_z, measure2 = release_pos_x, dataset = sample_fours)
+relx_change
+
+vb_change <- rmcorr(pitcher, measure1 = release_pos_z, measure2 = pfx_z, dataset = sample_fours)
+vb_change
+#plot(vb_change, sample_fours, overall = T)
+
+hb_change <- rmcorr(pitcher, measure1 = release_pos_z, measure2 = pfx_x, dataset = sample_fours)
+hb_change
+
+ext_change <- rmcorr(pitcher, measure1 = release_pos_z, measure2 = release_extension, dataset = sample_fours)
+ext_change
+#plot(ext_change, sample_fours, overall = T)
+
+#Getting release angle with x release as opposite and z release as adjacent
+sample_fours <- sample_fours %>% mutate(Position = (abs(release_pos_x)/release_pos_z))
+sample_fours <- sample_fours %>% mutate(RelAngle = tan(Position))
+angle_change <- rmcorr(pitcher, measure1 = release_pos_z, measure2 = RelAngle, dataset = sample_fours)
+angle_change
+plot(angle_change, sample_fours, overall = T)
 
 
 ```
